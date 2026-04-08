@@ -1,0 +1,36 @@
+# Exporter configuration.
+#
+# GRAFANA_BASE_URL   — base URL of the Grafana instance reachable from inside
+#                      the cluster (use the Kubernetes service DNS name).
+#
+# DASHBOARD_URLS     — space-separated list of full dashboard URLs to export.
+#                      The Job entrypoint splits this on spaces and passes each
+#                      URL as a separate positional argument to grafana_export.py.
+#                      Leave empty and set EXPORT_ALL=true to export every dashboard.
+#
+# EXPORT_ALL         — set to "true" to export every dashboard found in Grafana
+#                      (equivalent to --all flag). Overrides DASHBOARD_URLS.
+#
+# TIME_FROM / TIME_TO — override the time range for all exports (optional).
+#                       Grafana relative notation: now-1h, now-6h, now-24h, etc.
+#
+# EXTRA_ARGS         — any additional grafana_export.py flags (e.g. "--width 2560").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-exporter-config
+  labels:
+    app: grafana-exporter
+data:
+  GRAFANA_BASE_URL: "http://grafana.monitoring.svc.cluster.local:3000"
+
+  # To export specific dashboards paste their full URLs (space-separated):
+  DASHBOARD_URLS: >-
+    http://grafana.monitoring.svc.cluster.local:3000/d/grad-test-matrix/gradient-test?from=now-1h&to=now
+
+  # Set to "true" to export every dashboard instead:
+  EXPORT_ALL: "false"
+
+  TIME_FROM: ""
+  TIME_TO: ""
+  EXTRA_ARGS: ""

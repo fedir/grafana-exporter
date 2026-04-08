@@ -1,0 +1,121 @@
+# Kubernetes Job — runs grafana_export.py once and exits.
+#
+# Workflow:
+#   1. Apply all manifests:     kubectl apply -k k8s/
+#   2. Watch progress:          kubectl logs -f job/grafana-exporter
+#   3. Copy output to local PC: see pvc.yaml header for the kubectl cp command
+#   4. Clean up:                kubectl delete -k k8s/
+#
+# To re-run a fresh export delete the completed Job and re-apply:
+#   kubectl delete job grafana-exporter
+#   kubectl apply -f k8s/job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-exporter
+  labels:
+    app: grafana-exporter
+spec:
+  # Keep the completed pod around so logs and files are accessible.
+  # Delete it manually or set a ttlSecondsAfterFinished to auto-clean.
+  ttlSecondsAfterFinished: 3600   # auto-delete pod 1 hour after completion
+  backoffLimit: 1                 # retry once on failure, then stop
+  template:
+    metadata:
+      labels:
+        app: grafana-exporter
+    spec:
+      restartPolicy: Never
+
+      # ── Security context ────────────────────────────────────────────────────
+      # Run as the non-root user created in the Dockerfile.
+      # Chromium's kernel sandbox is disabled at the application level
+      # (--no-sandbox is injected automatically when KUBERNETES_SERVICE_HOST
+      # is detected), so no extra Linux capabilities are needed.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: exporter
+          image: your-registry/grafana-exporter:latest
+          imagePullPolicy: Always
+
+          # ── Entrypoint wrapper ─────────────────────────────────────────────
+          # Reads DASHBOARD_URLS / EXPORT_ALL / TIME_FROM / TIME_TO from the
+          # ConfigMap and assembles the grafana_export.py argument list.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              CMD="python3 /app/grafana_export.py --out /output"
+
+              # Auth
+              if [ -n "$GRAFANA_TOKEN" ]; then
+                CMD="$CMD --token $GRAFANA_TOKEN"
+              else
+                CMD="$CMD --user $GRAFANA_USER --password $GRAFANA_PASSWORD"
+              fi
+
+              # Time range overrides
+              [ -n "$TIME_FROM" ] && CMD="$CMD --from $TIME_FROM"
+              [ -n "$TIME_TO"   ] && CMD="$CMD --to   $TIME_TO"
+
+              # Extra flags
+              [ -n "$EXTRA_ARGS" ] && CMD="$CMD $EXTRA_ARGS"
+
+              # Dashboard selection
+              if [ "$EXPORT_ALL" = "true" ]; then
+                CMD="$CMD --all --base-url $GRAFANA_BASE_URL"
+              else
+                CMD="$CMD $DASHBOARD_URLS"
+              fi
+
+              echo "[job] Running: $CMD"
+              exec $CMD
+
+          # ── Environment — credentials from Secret ──────────────────────────
+          env:
+            - name: GRAFANA_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-exporter-credentials
+                  key: username
+            - name: GRAFANA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-exporter-credentials
+                  key: password
+            # Uncomment to use a token instead of username/password:
+            # - name: GRAFANA_TOKEN
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: grafana-exporter-credentials
+            #       key: token
+
+          # ── Environment — config from ConfigMap ────────────────────────────
+          envFrom:
+            - configMapRef:
+                name: grafana-exporter-config
+
+          # ── Resources ──────────────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+
+          # ── Output volume ──────────────────────────────────────────────────
+          volumeMounts:
+            - name: output
+              mountPath: /output
+
+      volumes:
+        - name: output
+          persistentVolumeClaim:
+            claimName: grafana-export-output

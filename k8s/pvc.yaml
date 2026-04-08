@@ -1,0 +1,22 @@
+# PersistentVolumeClaim for exported HTML files.
+#
+# The Job mounts this at /output inside the container.
+# After the Job completes copy files out with:
+#
+#   POD=$(kubectl get pods -l job-name=grafana-exporter -o jsonpath='{.items[0].metadata.name}')
+#   kubectl cp ${POD}:/output ./grafana-export
+#
+# Adjust storage size if you are exporting many dashboards.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-export-output
+  labels:
+    app: grafana-exporter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: standard   # uncomment and set if your cluster needs it

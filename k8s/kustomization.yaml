@@ -1,0 +1,10 @@
+# Apply everything with: kubectl apply -k k8s/
+# Remove everything with: kubectl delete -k k8s/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - secret.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - job.yaml
